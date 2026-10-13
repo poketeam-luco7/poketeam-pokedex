@@ -223,3 +223,26 @@ def test_profil_forme_par_type():
     assert "water" in p["weaknesses"] and "fire" in p["resistances"]
     assert p["sprite"].endswith("/493-fire.png")
     assert client.get("/pokemon/arceus-lumiere").status_code == 404
+
+
+def test_routes_capture():
+    FAKE["/pokemon/6"] = FAKE["/pokemon/charizard"]
+    starters = client.get("/capture/starters").json()
+    assert len(starters) == 27
+
+    etat = client.post("/capture/state", json={"unlocked": [4], "victories": {"charmander": 10}}).json()
+    assert etat["unlockedSpecies"] == ["charmander"]
+    assert etat["progression"]["unlock"] == [5]                       # Reptincel débloqué
+    assert any(p["owned"] for p in etat["tiers"])
+
+    rencontres = client.post("/capture/encounters", json={"tier": 10, "unlocked": [4]}).json()
+    assert len(rencontres) == 3 and all(r["firstStage"]["name"] != "charmander" for r in rencontres)
+
+    equipe = {"name": "Eau", "statTotal": 530, "offensiveTypes": ["water"],
+              "weak": {"electric": 1, "grass": 1}, "resist": {"fire": 1, "water": 1}}
+    r = client.post("/capture/fight", json={"team": equipe, "wildId": 6, "teamSize": 1}).json()
+    assert r["wild"]["name"] == "charizard" and r["wild"]["firstStage"]["name"] == "charmander"
+    assert r["teamB"]["statTotal"] == 534
+
+    a = client.post("/capture/analyze", json={"pokemonIds": ["charizard"], "unlocked": [4]}).json()
+    assert a["forbidden"] == ["charizard"]
