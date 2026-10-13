@@ -102,7 +102,7 @@ TYPE_FORM_SPECIES = {"arceus": 493, "silvally": 773}
 
 # Variétés sans intérêt pour composer une équipe (cosmétiques ou spécifiques à un mode de jeu)
 EXCLUDED_VARIETIES = ("-gmax", "-totem", "-starter", "pikachu-", "-power-construct",
-                      "-battle-bond", "-own-tempo")
+                      "-battle-bond", "-own-tempo", "koraidon-", "miraidon-")
 
 
 def _parse_type_form(name: str):
@@ -213,29 +213,37 @@ def _public(p: dict) -> dict:
 
 
 async def list_generation(num: int) -> list[dict]:
-    """Liste des Pokémon d'une génération : id, nom, sprite, types.
+    """Pokémon d'une génération, chacun suivi de ses formes alternatives
+    (Raichu puis Raichu d'Alola, Giratina puis Giratina-Origine, Arceus puis Arceus Feu...).
 
     L'ancien monolithe faisait un appel par Pokémon, les uns après les autres
-    (~150 appels pour la génération 1). Ici : 1 appel pour la génération +
-    18 appels pour les types, en parallèle et mis en cache.
+    (~150 appels pour la génération 1). Ici tout vient de pages en cache :
+    la génération, les 18 types et les 9 générations pour les noms d'espèces.
     """
     gen = await get_json(f"/generation/{num}")
     index = await _pokemon_index()
+    base_ids = _base_ids(index)
+
+    forms_by_species: dict[str, list[dict]] = {}
+    for p in index.values():
+        if p.get("isForm"):
+            forms_by_species.setdefault(p["baseSpecies"], []).append(p)
 
     result = []
-    for species in gen["pokemon_species"]:
+    for species in sorted(gen["pokemon_species"], key=lambda s: _id_from_url(s["url"])):
         pid = _id_from_url(species["url"])  # id de l'espèce = id de la forme par défaut
-        p = index.get(pid, {"types": []})
         result.append({
             "id": pid,
             "name": species["name"],
             "sprite": SPRITE_URL.format(id=pid),
-            "types": p["types"],
+            "types": index.get(pid, {"types": []})["types"],
             "isMega": False,
             "isForm": False,
             "baseSpecies": species["name"],
         })
-    return sorted(result, key=lambda p: p["id"])
+        forms = sorted(forms_by_species.get(species["name"], []), key=lambda p: _rank(p, base_ids))
+        result.extend(_public(p) for p in forms)
+    return result
 
 
 async def list_megas() -> list[dict]:
@@ -259,15 +267,6 @@ def _rank(p: dict, base_ids: dict) -> tuple:
     # formes par type (Arceus-Feu...) rangées dans l'ordre officiel des types
     type_order = ALL_TYPES.index(p["types"][0]) if isinstance(p["id"], str) else 0
     return (group, base_ids.get(p["baseSpecies"], 99999), type_order, str(p["id"]))
-
-
-async def list_forms() -> list[dict]:
-    """Formes alternatives (hors Méga), rangées par espèce."""
-    index = await _pokemon_index()
-    base_ids = _base_ids(index)
-    forms = [p for p in index.values() if p.get("isForm")]
-    forms.sort(key=lambda p: _rank(p, base_ids))
-    return [_public(p) for p in forms]
 
 
 async def list_by_type(type_name: str) -> list[dict]:

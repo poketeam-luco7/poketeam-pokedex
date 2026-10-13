@@ -32,6 +32,9 @@ ALL_MONS = [
     (10009, "rotom-wash", ["electric", "water"]),
     (10080, "pikachu-rock-star", ["electric"]),      # Pikachu cosplay : ignoré
     (493, "arceus", ["normal"]),
+    (1007, "koraidon", ["fighting", "dragon"]),
+    (10264, "koraidon-limited-build", ["fighting", "dragon"]),   # formes de Koraidon : ignorées
+    (10268, "miraidon-low-power-mode", ["electric", "dragon"]),  # formes de Miraidon : ignorées
 ]
 
 
@@ -196,16 +199,21 @@ def test_boss_de_la_semaine_et_combat(monkeypatch):
     assert r["winner"] == "A"
 
 
-def test_formes_alternatives():
-    formes = client.get("/forms").json()
-    noms = [f["name"] for f in formes]
-    assert "giratina-origin" in noms and "rotom-wash" in noms
-    assert "pikachu-rock-star" not in noms and "charizard-gmax" not in noms
-    assert "charizard-mega-x" not in noms                       # les Méga ont leur onglet
-    assert sum(n.startswith("arceus-") for n in noms) == 17     # 18 types sauf Normal
-    giratina = next(f for f in formes if f["name"] == "giratina-origin")
-    assert giratina["baseSpecies"] == "giratina" and giratina["isForm"]
-    assert noms.index("rotom-wash") < noms.index("giratina-origin")   # rangées par espèce
+def test_generation_avec_formes_a_cote_de_leur_espece():
+    gen = client.get("/generation/4").json()
+    noms = [p["name"] for p in gen]
+    assert noms[:4] == ["rotom", "rotom-wash", "giratina", "giratina-origin"]
+    assert noms[4] == "arceus" and noms[5] == "arceus-fire"        # ordre officiel des types
+    assert sum(n.startswith("arceus-") for n in noms) == 17        # 18 types sauf Normal
+    assert gen[3]["isForm"] and gen[3]["baseSpecies"] == "giratina"
+    assert "charizard-mega-x" not in noms                          # les Méga gardent leur onglet
+
+
+def test_formes_exclues():
+    tous = [p["name"] for t in ("fighting", "electric", "fire") for p in client.get(f"/type/{t}/pokemon").json()]
+    assert "koraidon" in tous
+    assert not any(n.startswith(("koraidon-", "miraidon-")) for n in tous)
+    assert "pikachu-rock-star" not in tous and "charizard-gmax" not in tous
 
 
 def test_profil_forme_par_type():
