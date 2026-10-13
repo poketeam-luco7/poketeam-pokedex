@@ -21,6 +21,9 @@ MEGA_THRESHOLD = 50            # victoires avec la forme finale pour débloquer 
 ENCOUNTERS_PER_ROUND = 3
 ROUNDS_PER_RUN = 3
 
+# Dernier numéro national de chaque génération (1 à 9)
+GENERATION_ENDS = (151, 251, 386, 493, 649, 721, 809, 905, 1025)
+
 SPRITE_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png"
 
 
@@ -174,3 +177,26 @@ def is_allowed(profile: dict, unlocked: list) -> bool:
     if profile.get("isMega"):
         return str(profile["id"]) in {str(u) for u in unlocked}
     return profile["baseSpecies"] in set(unlocked_species_names(unlocked))
+
+
+# --- Pokédex du dresseur ---------------------------------------------------------------
+
+def generation_of(sid: int) -> int:
+    return next(g for g, end in enumerate(GENERATION_ENDS, start=1) if sid <= end)
+
+
+def dex_progress(unlocked: list) -> dict:
+    """Espèces capturées sur le total, globalement et par génération (les Méga à part)."""
+    owned = _species_ids(unlocked)
+    gens = [{"num": g, "captured": 0, "total": 0} for g in range(1, len(GENERATION_ENDS) + 1)]
+    for sid in REF["species"]:
+        g = gens[generation_of(sid) - 1]
+        g["total"] += 1
+        g["captured"] += sid in owned
+    owned_megas = {int(u) for u in unlocked if str(u).isdigit() and int(u) in REF["mega_owner"]}
+    return {"captured": len(owned), "total": len(REF["species"]), "generations": gens,
+            "megas": {"captured": len(owned_megas), "total": len(REF["mega_owner"])}}
+
+
+def unlocked_megas(unlocked: list) -> list[int]:
+    return sorted(int(u) for u in unlocked if str(u).isdigit() and int(u) in REF["mega_owner"])

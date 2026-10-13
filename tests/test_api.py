@@ -246,3 +246,9 @@ def test_routes_capture():
 
     a = client.post("/capture/analyze", json={"pokemonIds": ["charizard"], "unlocked": [4]}).json()
     assert a["forbidden"] == ["charizard"]
+    assert etat["pokedex"]["captured"] == 1 and etat["unlockedMegas"] == []
+
+    locked = client.post("/capture/locked", json={"teams": {
+        "t1": {"pokemonIds": [6], "unlocked": [4]},
+        "t2": {"pokemonIds": [6], "unlocked": [4, 5, 6]}}}).json()
+    assert locked == {"t1": ["charizard"], "t2": []}

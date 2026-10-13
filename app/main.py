@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from typing import Dict, List, Optional, Union
 
 import httpx
@@ -53,6 +55,15 @@ class CaptureFightRequest(BaseModel):
     team: TeamSummary
     wildId: int
     teamSize: int = Field(ge=1, le=6)
+
+
+class LockedTeam(BaseModel):
+    pokemonIds: List[Union[int, str]] = Field(max_length=6)
+    unlocked: List[Union[int, str]] = Field(default_factory=list)
+
+
+class LockedRequest(BaseModel):
+    teams: Dict[str, LockedTeam]
 
 
 class CompareRequest(BaseModel):
@@ -153,6 +164,8 @@ def capture_state(req: CaptureState):
     return {
         "collection": capture.collection(req.unlocked),
         "unlockedSpecies": capture.unlocked_species_names(req.unlocked),
+        "unlockedMegas": capture.unlocked_megas(req.unlocked),
+        "pokedex": capture.dex_progress(req.unlocked),
         "progression": capture.progression(req.unlocked, req.victories),
         "tiers": capture.tiers(req.unlocked),
     }
@@ -175,6 +188,22 @@ async def capture_analyze(req: CaptureAnalyzeRequest):
         raise HTTPException(503, "PokéAPI indisponible")
     result["forbidden"] = [m["name"] for m in result["members"] if not capture.is_allowed(m, req.unlocked)]
     return result
+
+
+@app.post("/capture/locked")
+async def capture_locked(req: LockedRequest):
+    """Pour plusieurs équipes enregistrées : Pokémon que leur dresseur n'a pas débloqués.
+    Une équipe qui en contient ne peut plus aller au combat."""
+    ids = {str(i) for t in req.teams.values() for i in t.pokemonIds}
+    try:
+        profiles = dict(zip(ids, await asyncio.gather(*(get_profile(i) for i in ids))))
+    except NotFound as e:
+        raise HTTPException(404, f"Pokémon inconnu : {str(e).rsplit('/', 1)[-1]}")
+    except httpx.HTTPError:
+        raise HTTPException(503, "PokéAPI indisponible")
+    return {key: [profiles[str(i)]["name"] for i in t.pokemonIds
+                  if not capture.is_allowed(profiles[str(i)], t.unlocked)]
+            for key, t in req.teams.items()}
 
 
 @app.post("/capture/fight")

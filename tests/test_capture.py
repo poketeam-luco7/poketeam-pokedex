@@ -85,3 +85,12 @@ def test_formes_et_mega_autorisees():
     assert not c.is_allowed({"id": 6, "baseSpecies": "charizard", "isMega": False}, owned)
     assert not c.is_allowed({"id": 10034, "baseSpecies": "charizard", "isMega": True}, [ID["charizard"]])
     assert c.is_allowed({"id": 10034, "baseSpecies": "charizard", "isMega": True}, [ID["charizard"], 10034])
+
+
+def test_pokedex_par_generation():
+    d = c.dex_progress([4, 5, 152, 10034])
+    assert d["total"] == 1025 and d["captured"] == 3
+    assert [g["total"] for g in d["generations"]][:2] == [151, 100]
+    assert d["generations"][0]["captured"] == 2 and d["generations"][1]["captured"] == 1
+    assert d["megas"]["captured"] == 1
+    assert c.generation_of(1025) == 9
