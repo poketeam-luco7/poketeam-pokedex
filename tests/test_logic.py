@@ -99,3 +99,31 @@ def test_suggestion_pour_une_equipe_feu():
 def test_aucune_suggestion_si_rien_a_couvrir():
     solide = {"types": ["steel"], "statTotal": 500, "weaknesses": [], "resistances": ["fire"]}
     assert suggest_types(build_summary([solide]), RELATIONS) == []
+
+
+# --- Boss de la semaine ---------------------------------------------------------
+from datetime import date
+
+from app.logic import BOSS_CATALOG, boss_of_week, boss_summary
+
+
+def test_boss_stable_sur_toute_la_semaine():
+    lundi, dimanche = date(2026, 10, 12), date(2026, 10, 18)
+    assert boss_of_week(lundi) == boss_of_week(dimanche)
+    assert boss_of_week(lundi)["week"] == "2026-W42"
+
+
+def test_boss_change_chaque_semaine_et_tourne():
+    semaines = [boss_of_week(date(2026, 1, 5) + (date(2026, 1, 12) - date(2026, 1, 5)) * i)["name"]
+                for i in range(len(BOSS_CATALOG))]
+    assert all(a != b for a, b in zip(semaines, semaines[1:]))
+    assert set(semaines) == set(BOSS_CATALOG)
+
+
+def test_boss_summary_multiplie_stats_et_poids():
+    rayquaza = {"name": "rayquaza-mega", "types": ["dragon", "flying"], "statTotal": 780,
+                "weaknesses": ["ice", "rock", "dragon", "fairy"], "resistances": ["fire", "ground"]}
+    s = boss_summary(rayquaza)
+    assert s["statTotal"] == 3900
+    assert s["weak"]["ice"] == 3 and s["resist"]["ground"] == 3
+    assert s["offensiveTypes"] == ["dragon", "flying"]

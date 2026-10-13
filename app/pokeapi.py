@@ -10,10 +10,14 @@ import os
 
 import httpx
 
-from .logic import ALL_TYPES, analyze_team, weaknesses_and_resistances
+from datetime import date, datetime, time, timedelta, timezone
+
+from .logic import (ALL_TYPES, BOSS_STAT_MULTIPLIER, analyze_team, boss_of_week, boss_summary,
+                    weaknesses_and_resistances)
 
 POKEAPI_URL = os.getenv("POKEAPI_URL", "https://pokeapi.co/api/v2")
 SPRITE_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png"
+ARTWORK_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/{id}.png"
 
 STAT_NAMES = {
     "hp": "hp",
@@ -175,3 +179,21 @@ async def analyze(pokemon_ids: list) -> dict:
     profiles = await asyncio.gather(*(get_profile(pid) for pid in pokemon_ids))
     relations = dict(zip(ALL_TYPES, await asyncio.gather(*(_type_relations(t) for t in ALL_TYPES))))
     return analyze_team(list(profiles), relations)
+
+
+async def current_boss(today: date | None = None) -> dict:
+    """Boss de la semaine : profil, stats multipliées, et date du prochain changement."""
+    today = today or datetime.now(timezone.utc).date()
+    pick = boss_of_week(today)
+    profile = await get_profile(pick["name"])
+    next_monday = today + timedelta(days=7 - today.weekday())
+    return {
+        **profile,
+        "artwork": ARTWORK_URL.format(id=profile["id"]),
+        "week": pick["week"],
+        "endsAt": datetime.combine(next_monday, time(0, 0), timezone.utc).isoformat(),
+        "stats": {k: v * BOSS_STAT_MULTIPLIER for k, v in profile["stats"].items()},
+        "statTotal": profile["statTotal"] * BOSS_STAT_MULTIPLIER,
+        "baseStatTotal": profile["statTotal"],
+        "summary": boss_summary(profile),
+    }

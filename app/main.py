@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Path
 from pydantic import BaseModel, Field
 
 from .logic import ALL_TYPES, compare_teams
-from .pokeapi import NotFound, analyze, get_profile, list_by_type, list_generation, list_megas
+from .pokeapi import NotFound, analyze, current_boss, get_profile, list_by_type, list_generation, list_megas
 
 app = FastAPI(
     title="Pokédex",
@@ -25,6 +25,10 @@ class TeamSummary(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     pokemonIds: List[Union[int, str]] = Field(min_length=1, max_length=6)
+
+
+class BossFightRequest(BaseModel):
+    team: TeamSummary
 
 
 class CompareRequest(BaseModel):
@@ -83,6 +87,27 @@ async def analyze_route(req: AnalyzeRequest):
         raise HTTPException(404, f"Pokémon inconnu : {pid}")
     except httpx.HTTPError:
         raise HTTPException(503, "PokéAPI indisponible")
+
+
+@app.get("/boss")
+async def boss():
+    """Boss de la semaine (public)."""
+    try:
+        return await current_boss()
+    except httpx.HTTPError:
+        raise HTTPException(503, "PokéAPI indisponible")
+
+
+@app.post("/boss/fight")
+async def boss_fight(req: BossFightRequest):
+    """Affrontement d'une équipe contre le boss : même formule que le versus."""
+    try:
+        b = await current_boss()
+    except httpx.HTTPError:
+        raise HTTPException(503, "PokéAPI indisponible")
+    result = compare_teams(req.team.model_dump(), b["summary"])
+    public = {k: v for k, v in b.items() if k != "summary"}
+    return {**result, "boss": public}
 
 
 @app.post("/teams/compare")

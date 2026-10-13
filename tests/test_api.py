@@ -157,3 +157,21 @@ def test_route_analyze():
     assert isinstance(a["suggestions"], list)
     assert client.post("/teams/analyze", json={"pokemonIds": ["missingno"]}).status_code == 404
     assert client.post("/teams/analyze", json={"pokemonIds": []}).status_code == 422
+
+
+def test_boss_de_la_semaine_et_combat(monkeypatch):
+    from app import logic
+    monkeypatch.setattr(logic, "BOSS_CATALOG", ["charizard"])
+    b = client.get("/boss").json()
+    assert b["name"] == "charizard"
+    assert b["statTotal"] == 534 * 5 and b["baseStatTotal"] == 534
+    assert b["artwork"].endswith("/official-artwork/6.png")
+    assert "summary" in b and b["endsAt"].endswith("+00:00")
+
+    team = {"name": "Eau", "statTotal": 3000, "offensiveTypes": ["water"],
+            "weak": {"electric": 6}, "resist": {"fire": 6, "water": 6}}
+    r = client.post("/boss/fight", json={"team": team}).json()
+    assert r["boss"]["name"] == "charizard" and "summary" not in r["boss"]
+    assert r["teamB"]["statTotal"] == 2670
+    assert r["teamB"]["defensiveDetail"] == {"water": -3}   # le boss compte pour 3
+    assert r["winner"] == "A"
