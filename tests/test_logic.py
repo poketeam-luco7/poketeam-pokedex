@@ -60,3 +60,42 @@ def test_multiplicateur_borne():
 def test_egalite():
     t = {"statTotal": 300, "offensiveTypes": ["normal"], "weak": {}, "resist": {}}
     assert compare_teams(t, dict(t))["winner"] == "draw"
+
+
+# --- Analyse et suggestions ---------------------------------------------------
+from app.logic import ALL_TYPES as _T, build_summary, coverage_by_type, suggest_types
+
+NO_REL = {"double": [], "half": [], "none": []}
+GRASS = {"double": ["fire", "ice", "poison", "flying", "bug"],
+         "half": ["water", "electric", "grass", "ground"], "none": []}
+RELATIONS = {t: NO_REL for t in _T} | {"fire": FIRE, "water": WATER, "grass": GRASS,
+                                        "ground": GROUND, "flying": FLYING}
+
+ARCANINE = {"types": ["fire"], "statTotal": 555,
+            "weaknesses": ["water", "ground", "rock"],
+            "resistances": ["fire", "grass", "ice", "bug", "steel", "fairy"]}
+
+
+def test_summary_compte_chaque_membre():
+    s = build_summary([ARCANINE, ARCANINE])
+    assert s["weak"]["water"] == 2 and s["resist"]["fire"] == 2
+    assert s["statTotal"] == 1110 and s["offensiveTypes"] == ["fire"]
+
+
+def test_couverture_sur_les_18_types():
+    rows = coverage_by_type(build_summary([ARCANINE]))
+    assert len(rows) == 18
+    eau = next(r for r in rows if r["type"] == "water")
+    assert eau == {"type": "water", "weak": 1, "resist": 0, "net": -1}
+
+
+def test_suggestion_pour_une_equipe_feu():
+    # Équipe Feu faible à Eau, Sol et Roche : Plante résiste à Eau et Sol, elle sort en tête
+    sugg = suggest_types(build_summary([ARCANINE, ARCANINE]), RELATIONS)
+    assert sugg[0]["type"] == "grass"
+    assert set(sugg[0]["covers"]) == {"water", "ground"}
+
+
+def test_aucune_suggestion_si_rien_a_couvrir():
+    solide = {"types": ["steel"], "statTotal": 500, "weaknesses": [], "resistances": ["fire"]}
+    assert suggest_types(build_summary([solide]), RELATIONS) == []

@@ -95,3 +95,69 @@ def compare_teams(a: dict, b: dict) -> dict:
             "description": "score = statTotal x clamp(1 + typeWeight x typeAdvantage)",
         },
     }
+
+
+# --- Analyse d'une équipe en cours de création ---------------------------------
+
+def build_summary(profiles: list[dict]) -> dict:
+    """Chaque Pokémon ajoute +1 dans chacune de ses faiblesses et résistances.
+    (Source unique de cette règle : le service Équipes s'en sert via /teams/analyze.)"""
+    weak, resist, offensive = {}, {}, []
+    for p in profiles:
+        for t in p["weaknesses"]:
+            weak[t] = weak.get(t, 0) + 1
+        for t in p["resistances"]:
+            resist[t] = resist.get(t, 0) + 1
+        for t in p["types"]:
+            if t not in offensive:
+                offensive.append(t)
+    return {
+        "statTotal": sum(p["statTotal"] for p in profiles),
+        "weak": weak,
+        "resist": resist,
+        "offensiveTypes": offensive,
+    }
+
+
+def coverage_by_type(summary: dict) -> list[dict]:
+    """Pour chacun des 18 types attaquants : combien de membres sont faibles / résistent."""
+    rows = []
+    for t in ALL_TYPES:
+        w, r = summary["weak"].get(t, 0), summary["resist"].get(t, 0)
+        rows.append({"type": t, "weak": w, "resist": r, "net": r - w})
+    return rows
+
+
+def suggest_types(summary: dict, relations: dict[str, dict], limit: int = 3) -> list[dict]:
+    """Types défensifs à ajouter pour couvrir les faiblesses de l'équipe.
+
+    Un type candidat gagne des points pour chaque faiblesse non couverte de l'équipe
+    qu'il résiste (pondérée par sa gravité) et en perd pour chaque faiblesse
+    non couverte qu'il aggraverait.
+    """
+    coverage = {row["type"]: row["net"] for row in coverage_by_type(summary)}
+    dangers = {t: -net for t, net in coverage.items() if net < 0}
+    if not dangers:
+        return []
+
+    suggestions = []
+    for candidate in ALL_TYPES:
+        rel = relations[candidate]
+        covers = [t for t in dangers if t in rel["half"] or t in rel["none"]]
+        risks = [t for t in ALL_TYPES if t in rel["double"] and coverage[t] <= 0]
+        score = sum(dangers[t] for t in covers) - len(risks)
+        if score > 0:
+            suggestions.append({"type": candidate, "score": score, "covers": covers, "risks": risks})
+
+    suggestions.sort(key=lambda s: (-s["score"], ALL_TYPES.index(s["type"])))
+    return suggestions[:limit]
+
+
+def analyze_team(profiles: list[dict], relations: dict[str, dict]) -> dict:
+    summary = build_summary(profiles)
+    return {
+        "members": profiles,
+        "summary": summary,
+        "coverage": coverage_by_type(summary),
+        "suggestions": suggest_types(summary, relations),
+    }
