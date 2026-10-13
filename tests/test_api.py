@@ -16,15 +16,25 @@ TYPES = {
 }
 
 
+# Pokémon présents dans les fausses pages de types : (id, nom, [types par slot])
+ALL_MONS = [
+    (1, "bulbasaur", ["grass", "poison"]),
+    (6, "charizard", ["fire", "flying"]),
+    (9, "blastoise", ["water"]),
+    (130, "gyarados", ["water", "flying"]),
+    (10034, "charizard-mega-x", ["fire", "dragon"]),
+    (10035, "charizard-mega-y", ["fire", "flying"]),
+    (10041, "gyarados-mega", ["water", "dark"]),
+    (10196, "charizard-gmax", ["fire", "flying"]),   # forme Gigamax : ignorée
+]
+
+
 def type_page(name):
     rel = TYPES.get(name, {"double_damage_from": [], "half_damage_from": [], "no_damage_from": []})
-    pokemon = []
-    if name == "fire":
-        pokemon = [{"slot": 1, "pokemon": {"name": "charizard", "url": "https://x/pokemon/6/"}}]
-    if name == "flying":
-        pokemon = [{"slot": 2, "pokemon": {"name": "charizard", "url": "https://x/pokemon/6/"}}]
-    if name == "grass":
-        pokemon = [{"slot": 1, "pokemon": {"name": "bulbasaur", "url": "https://x/pokemon/1/"}}]
+    pokemon = [
+        {"slot": types.index(name) + 1, "pokemon": {"name": n, "url": f"https://x/pokemon/{pid}/"}}
+        for pid, n, types in ALL_MONS if name in types
+    ]
     return {
         "damage_relations": {k: [{"name": t} for t in v] for k, v in rel.items()},
         "pokemon": pokemon,
@@ -81,6 +91,28 @@ def test_pokemon_inconnu():
     assert client.get("/pokemon/missingno").status_code == 404
 
 
+def test_profil_signale_les_mega():
+    FAKE["/pokemon/charizard-mega-x"] = {**FAKE["/pokemon/charizard"], "id": 10034, "name": "charizard-mega-x",
+                                         "types": [{"slot": 1, "type": {"name": "fire"}}, {"slot": 2, "type": {"name": "dragon"}}]}
+    p = client.get("/pokemon/charizard-mega-x").json()
+    assert p["isMega"] is True and p["baseSpecies"] == "charizard"
+    assert client.get("/pokemon/charizard").json()["isMega"] is False
+
+
+def test_megas_rangees_apres_leur_forme_de_base():
+    megas = client.get("/megas").json()
+    assert [m["name"] for m in megas] == ["charizard-mega-x", "charizard-mega-y", "gyarados-mega"]
+    assert megas[0]["types"] == ["fire", "dragon"]
+    assert all(m["isMega"] for m in megas)          # pas de Gigamax
+
+
+def test_filtre_type_toutes_generations():
+    eau = client.get("/type/water/pokemon").json()
+    assert [p["name"] for p in eau] == ["blastoise", "gyarados", "gyarados-mega"]  # Méga à la fin
+    assert eau[1]["types"] == ["water", "flying"]
+    assert client.get("/type/lumiere/pokemon").status_code == 404
+
+
 def test_generation_triee_avec_types():
     r = client.get("/generation/1")
     assert r.status_code == 200
@@ -113,3 +145,15 @@ def test_route_compare():
     r = client.post("/teams/compare", json=body)
     assert r.status_code == 200
     assert r.json()["winner"] == "B"
+
+
+def test_route_analyze():
+    r = client.post("/teams/analyze", json={"pokemonIds": ["charizard", "charizard"]})
+    assert r.status_code == 200
+    a = r.json()
+    assert [m["name"] for m in a["members"]] == ["charizard", "charizard"]
+    assert a["summary"]["weak"]["rock"] == 2 and a["summary"]["statTotal"] == 1068
+    assert len(a["coverage"]) == 18
+    assert isinstance(a["suggestions"], list)
+    assert client.post("/teams/analyze", json={"pokemonIds": ["missingno"]}).status_code == 404
+    assert client.post("/teams/analyze", json={"pokemonIds": []}).status_code == 422

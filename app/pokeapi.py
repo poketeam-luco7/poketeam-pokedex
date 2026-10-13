@@ -10,7 +10,7 @@ import os
 
 import httpx
 
-from .logic import ALL_TYPES, weaknesses_and_resistances
+from .logic import ALL_TYPES, analyze_team, weaknesses_and_resistances
 
 POKEAPI_URL = os.getenv("POKEAPI_URL", "https://pokeapi.co/api/v2")
 SPRITE_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png"
@@ -74,13 +74,58 @@ async def get_profile(id_or_name: str) -> dict:
     return {
         "id": data["id"],
         "name": data["name"],
-        "sprite": data["sprites"]["front_default"],
+        "isMega": is_mega(data["name"]),
+        "baseSpecies": base_species(data["name"]),
+        "sprite": data["sprites"]["front_default"] or SPRITE_URL.format(id=data["id"]),
         "types": types,
         "stats": stats,
         "statTotal": sum(stats.values()),
         "weaknesses": weak,
         "resistances": resist,
     }
+
+
+def is_mega(name: str) -> bool:
+    """Formes Méga dans PokéAPI : 'charizard-mega-x', 'gyarados-mega'...
+    ('meganium' ou 'yanmega' ne contiennent pas '-mega')."""
+    return "-mega" in name
+
+
+def base_species(name: str) -> str:
+    return name.split("-mega")[0] if is_mega(name) else name
+
+
+async def _pokemon_index() -> dict[int, dict]:
+    """Tous les Pokémon utiles (formes de base + Méga), avec leurs types.
+
+    Construit uniquement à partir des 18 pages de types (déjà en cache) :
+    aucune requête par Pokémon. Les autres formes alternatives (Alola, Gigamax...)
+    ont un id > 10000 sans '-mega' et sont ignorées.
+    """
+    type_pages = await asyncio.gather(*(get_json(f"/type/{t}") for t in ALL_TYPES))
+    index: dict[int, dict] = {}
+    for type_name, page in zip(ALL_TYPES, type_pages):
+        for entry in page["pokemon"]:
+            pid = _id_from_url(entry["pokemon"]["url"])
+            name = entry["pokemon"]["name"]
+            if pid >= 10000 and not is_mega(name):
+                continue
+            p = index.setdefault(pid, {
+                "id": pid,
+                "name": name,
+                "sprite": SPRITE_URL.format(id=pid),
+                "isMega": is_mega(name),
+                "baseSpecies": base_species(name),
+                "_slots": [],
+            })
+            p["_slots"].append((entry["slot"], type_name))
+    for p in index.values():
+        p["types"] = [t for _, t in sorted(p["_slots"])]
+    return index
+
+
+def _public(p: dict) -> dict:
+    return {k: v for k, v in p.items() if not k.startswith("_")}
 
 
 async def list_generation(num: int) -> list[dict]:
@@ -91,22 +136,42 @@ async def list_generation(num: int) -> list[dict]:
     18 appels pour les types, en parallèle et mis en cache.
     """
     gen = await get_json(f"/generation/{num}")
-    type_pages = await asyncio.gather(*(get_json(f"/type/{t}") for t in ALL_TYPES))
-
-    # id du Pokémon -> [(slot, type)]
-    types_by_id: dict[int, list[tuple[int, str]]] = {}
-    for type_name, page in zip(ALL_TYPES, type_pages):
-        for entry in page["pokemon"]:
-            pid = _id_from_url(entry["pokemon"]["url"])
-            types_by_id.setdefault(pid, []).append((entry["slot"], type_name))
+    index = await _pokemon_index()
 
     result = []
     for species in gen["pokemon_species"]:
         pid = _id_from_url(species["url"])  # id de l'espèce = id de la forme par défaut
+        p = index.get(pid, {"types": []})
         result.append({
             "id": pid,
             "name": species["name"],
             "sprite": SPRITE_URL.format(id=pid),
-            "types": [t for _, t in sorted(types_by_id.get(pid, []))],
+            "types": p["types"],
+            "isMega": False,
+            "baseSpecies": species["name"],
         })
     return sorted(result, key=lambda p: p["id"])
+
+
+async def list_megas() -> list[dict]:
+    """Toutes les Méga-Évolutions, rangées après leur forme de base."""
+    index = await _pokemon_index()
+    base_ids = {p["name"]: p["id"] for p in index.values() if not p["isMega"]}
+    megas = [p for p in index.values() if p["isMega"]]
+    megas.sort(key=lambda p: (base_ids.get(p["baseSpecies"], 99999), p["id"]))
+    return [_public(p) for p in megas]
+
+
+async def list_by_type(type_name: str) -> list[dict]:
+    """Tous les Pokémon d'un type, toutes générations confondues, puis les Méga."""
+    index = await _pokemon_index()
+    found = [p for p in index.values() if type_name in p["types"]]
+    found.sort(key=lambda p: (p["isMega"], p["id"]))
+    return [_public(p) for p in found]
+
+
+async def analyze(pokemon_ids: list) -> dict:
+    """Profils des membres + summary + couverture + suggestions, en un seul appel."""
+    profiles = await asyncio.gather(*(get_profile(pid) for pid in pokemon_ids))
+    relations = dict(zip(ALL_TYPES, await asyncio.gather(*(_type_relations(t) for t in ALL_TYPES))))
+    return analyze_team(list(profiles), relations)
