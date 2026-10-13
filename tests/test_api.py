@@ -26,6 +26,12 @@ ALL_MONS = [
     (10035, "charizard-mega-y", ["fire", "flying"]),
     (10041, "gyarados-mega", ["water", "dark"]),
     (10196, "charizard-gmax", ["fire", "flying"]),   # forme Gigamax : ignorée
+    (487, "giratina-altered", ["ghost", "dragon"]),  # forme de base, nom différent de l'espèce
+    (10007, "giratina-origin", ["ghost", "dragon"]),
+    (479, "rotom", ["electric", "ghost"]),
+    (10009, "rotom-wash", ["electric", "water"]),
+    (10080, "pikachu-rock-star", ["electric"]),      # Pikachu cosplay : ignoré
+    (493, "arceus", ["normal"]),
 ]
 
 
@@ -54,6 +60,18 @@ FAKE = {
         {"name": "charizard", "url": "https://x/pokemon-species/6/"},
         {"name": "bulbasaur", "url": "https://x/pokemon-species/1/"},
     ]},
+    "/generation/4": {"pokemon_species": [
+        {"name": "giratina", "url": "https://x/pokemon-species/487/"},
+        {"name": "rotom", "url": "https://x/pokemon-species/479/"},
+        {"name": "arceus", "url": "https://x/pokemon-species/493/"},
+    ]},
+    "/pokemon/arceus": {
+        "id": 493, "name": "arceus", "species": {"name": "arceus"},
+        "sprites": {"front_default": "493.png"},
+        "types": [{"slot": 1, "type": {"name": "normal"}}],
+        "stats": [{"base_stat": 120, "stat": {"name": n}} for n in
+                  ["hp", "attack", "defense", "special-attack", "special-defense", "speed"]],
+    },
     **{f"/type/{t}": type_page(t) for t in ALL_TYPES},
 }
 
@@ -108,7 +126,8 @@ def test_megas_rangees_apres_leur_forme_de_base():
 
 def test_filtre_type_toutes_generations():
     eau = client.get("/type/water/pokemon").json()
-    assert [p["name"] for p in eau] == ["blastoise", "gyarados", "gyarados-mega"]  # Méga à la fin
+    assert [p["name"] for p in eau] == ["blastoise", "gyarados", "gyarados-mega", "rotom-wash",
+                                        "arceus-water", "silvally-water"]  # puis Méga, puis formes
     assert eau[1]["types"] == ["water", "flying"]
     assert client.get("/type/lumiere/pokemon").status_code == 404
 
@@ -175,3 +194,24 @@ def test_boss_de_la_semaine_et_combat(monkeypatch):
     assert r["teamB"]["statTotal"] == 2670
     assert r["teamB"]["defensiveDetail"] == {"water": -3}   # le boss compte pour 3
     assert r["winner"] == "A"
+
+
+def test_formes_alternatives():
+    formes = client.get("/forms").json()
+    noms = [f["name"] for f in formes]
+    assert "giratina-origin" in noms and "rotom-wash" in noms
+    assert "pikachu-rock-star" not in noms and "charizard-gmax" not in noms
+    assert "charizard-mega-x" not in noms                       # les Méga ont leur onglet
+    assert sum(n.startswith("arceus-") for n in noms) == 17     # 18 types sauf Normal
+    giratina = next(f for f in formes if f["name"] == "giratina-origin")
+    assert giratina["baseSpecies"] == "giratina" and giratina["isForm"]
+    assert noms.index("rotom-wash") < noms.index("giratina-origin")   # rangées par espèce
+
+
+def test_profil_forme_par_type():
+    p = client.get("/pokemon/arceus-fire").json()
+    assert p["id"] == "arceus-fire" and p["types"] == ["fire"]
+    assert p["statTotal"] == 720 and p["baseSpecies"] == "arceus"   # stats d'Arceus
+    assert "water" in p["weaknesses"] and "fire" in p["resistances"]
+    assert p["sprite"].endswith("/493-fire.png")
+    assert client.get("/pokemon/arceus-lumiere").status_code == 404

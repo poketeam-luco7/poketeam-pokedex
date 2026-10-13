@@ -7,7 +7,8 @@ from fastapi import FastAPI, HTTPException, Path
 from pydantic import BaseModel, Field
 
 from .logic import ALL_TYPES, compare_teams
-from .pokeapi import NotFound, analyze, current_boss, get_profile, list_by_type, list_generation, list_megas
+from .pokeapi import (NotFound, analyze, current_boss, get_profile, list_by_type, list_forms, list_generation,
+                      list_megas)
 
 app = FastAPI(
     title="Pokédex",
@@ -53,6 +54,15 @@ async def generation(num: int = Path(ge=1, le=9)):
 async def megas():
     try:
         return await list_megas()
+    except httpx.HTTPError:
+        raise HTTPException(503, "PokéAPI indisponible")
+
+
+@app.get("/forms")
+async def forms():
+    """Formes alternatives : variétés (Giratina-Origine, Motisma...) et Arceus/Silvallié par type."""
+    try:
+        return await list_forms()
     except httpx.HTTPError:
         raise HTTPException(503, "PokéAPI indisponible")
 
