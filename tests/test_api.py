@@ -235,7 +235,7 @@ def test_routes_capture():
     assert etat["progression"]["unlock"] == [5]                       # Reptincel débloqué
     assert any(p["owned"] for p in etat["tiers"])
 
-    rencontres = client.post("/capture/encounters", json={"tier": 10, "unlocked": [4]}).json()
+    rencontres = client.post("/capture/encounters", json={"tier": 10, "unlocked": [4]}).json()["candidates"]
     assert len(rencontres) == 3 and all(r["firstStage"]["name"] != "charmander" for r in rencontres)
 
     equipe = {"name": "Eau", "statTotal": 530, "offensiveTypes": ["water"],
@@ -245,7 +245,9 @@ def test_routes_capture():
     assert r["teamB"]["statTotal"] == 534
 
     a = client.post("/capture/analyze", json={"pokemonIds": ["charizard"], "unlocked": [4]}).json()
-    assert a["forbidden"] == ["charizard"]
+    assert a["forbidden"] == ["charizard"] and a["tooStrong"] == []
+    a = client.post("/capture/analyze", json={"pokemonIds": ["charizard"], "unlocked": [4, 5, 6], "tier": 8}).json()
+    assert a["tooStrong"] == ["charizard"]
     assert etat["pokedex"]["captured"] == 1 and etat["unlockedMegas"] == []
 
     locked = client.post("/capture/locked", json={"teams": {

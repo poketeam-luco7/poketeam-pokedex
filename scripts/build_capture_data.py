@@ -50,9 +50,14 @@ def build(t: dict[str, list[dict]]) -> dict:
         types.setdefault(int(r["pokemon_id"]), []).append((int(r["slot"]), type_names[r["type_id"]]))
 
     megas: dict[int, list[int]] = {}
+    mega_info: dict[str, dict] = {}
     for r in t["pokemon"]:
         if "-mega" in r["identifier"]:
-            megas.setdefault(int(r["species_id"]), []).append(int(r["id"]))
+            mid = int(r["id"])
+            megas.setdefault(int(r["species_id"]), []).append(mid)
+            # stats et types propres à la Méga (Méga-Dracaufeu X est Feu/Dragon)
+            mega_info[str(mid)] = {"name": r["identifier"], "statTotal": totals[mid],
+                                   "types": [name for _, name in sorted(types[mid])]}
 
     rows = {int(r["id"]): r for r in t["pokemon_species"]}
 
@@ -73,7 +78,7 @@ def build(t: dict[str, list[dict]]) -> dict:
             "megas": sorted(megas.get(sid, [])),
         })
     by_name = {s["name"]: s["id"] for s in species}
-    return {"species": species, "starters": [by_name[n] for n in STARTERS]}
+    return {"species": species, "starters": [by_name[n] for n in STARTERS], "megas": mega_info}
 
 
 if __name__ == "__main__":

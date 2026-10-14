@@ -36,8 +36,9 @@ def test_rencontres_hors_lignes_possedees():
 
 
 def test_tirage_de_3_dans_le_palier():
-    rencontres = c.draw_encounters(6, [], rng=random.Random(1))
-    assert len(rencontres) == 3
+    tirage = c.draw_encounters(6, [], rng=random.Random(1))
+    rencontres = tirage["candidates"]
+    assert not tirage["training"] and len(rencontres) == 3
     assert all(300 <= r["statTotal"] <= 349 for r in rencontres)
 
 
@@ -94,3 +95,37 @@ def test_pokedex_par_generation():
     assert d["generations"][0]["captured"] == 2 and d["generations"][1]["captured"] == 1
     assert d["megas"]["captured"] == 1
     assert c.generation_of(1025) == 9
+
+
+def test_palier_termine_devient_entrainement():
+    tier = 3                                             # 150-199 : une dizaine d'espèces
+    tout = c.tier_species(tier)
+    assert not c.is_training(tier, [])
+    possedes = [c.first_stage(sid) for sid in tout]      # on possède toutes les lignes du palier
+    assert c.is_training(tier, possedes)
+    assert next(t for t in c.tiers(possedes) if t["index"] == tier)["training"]
+    tirage = c.draw_encounters(tier, possedes, rng=random.Random(2))
+    assert tirage["training"] and len(tirage["candidates"]) == 3
+    assert all(r["id"] in tout for r in tirage["candidates"])   # Pokémon déjà possédés compris
+
+
+def test_entrainement_dans_un_petit_palier():
+    tier = max(c.tier_index(s["statTotal"]) for s in c.REF["species"].values())
+    tout = c.tier_species(tier)
+    possedes = [c.first_stage(sid) for sid in tout]
+    # tous déjà battus : on autorise les revanches plutôt que de bloquer la run
+    tirage = c.draw_encounters(tier, possedes, exclude=tout)
+    assert tirage["candidates"]
+
+
+def test_trop_fort_deux_paliers_en_dessous():
+    dracaufeu = {"name": "charizard", "statTotal": 534}   # palier 10
+    assert c.too_strong([dracaufeu], 9) == []             # 1 palier en dessous : autorisé
+    assert c.too_strong([dracaufeu], 8) == ["charizard"]  # 2 paliers en dessous : interdit
+    assert c.too_strong([dracaufeu], 12) == []            # plus fort que lui : autorisé
+
+
+def test_mega_avec_ses_propres_stats_et_types():
+    m = c.mega_entry(10034)
+    assert m["name"] == "charizard-mega-x" and m["statTotal"] == 634 and m["types"] == ["fire", "dragon"]
+    assert m["tier"] == 12

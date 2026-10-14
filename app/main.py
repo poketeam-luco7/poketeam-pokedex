@@ -49,6 +49,7 @@ class EncounterRequest(BaseModel):
 class CaptureAnalyzeRequest(BaseModel):
     pokemonIds: List[Union[int, str]] = Field(min_length=1, max_length=6)
     unlocked: List[Union[int, str]] = Field(default_factory=list)
+    tier: Optional[int] = Field(default=None, ge=0, le=20)   # palier de la run, si c'en est une
 
 
 class CaptureFightRequest(BaseModel):
@@ -173,7 +174,7 @@ def capture_state(req: CaptureState):
 
 @app.post("/capture/encounters")
 def capture_encounters(req: EncounterRequest):
-    """3 Pokémon sauvages tirés au hasard dans le palier, parmi les lignes non possédées."""
+    """3 Pokémon sauvages tirés au hasard dans le palier : {training, candidates}."""
     return capture.draw_encounters(req.tier, req.unlocked, req.exclude)
 
 
@@ -187,6 +188,7 @@ async def capture_analyze(req: CaptureAnalyzeRequest):
     except httpx.HTTPError:
         raise HTTPException(503, "PokéAPI indisponible")
     result["forbidden"] = [m["name"] for m in result["members"] if not capture.is_allowed(m, req.unlocked)]
+    result["tooStrong"] = capture.too_strong(result["members"], req.tier) if req.tier is not None else []
     return result
 
 

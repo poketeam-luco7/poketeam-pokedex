@@ -20,6 +20,7 @@ EXTRA_BRANCH = 10              # victoires supplémentaires pour choisir une aut
 MEGA_THRESHOLD = 50            # victoires avec la forme finale pour débloquer ses Méga
 ENCOUNTERS_PER_ROUND = 3
 ROUNDS_PER_RUN = 3
+MAX_TIERS_BELOW = 1            # un Pokémon peut combattre 1 palier sous le sien, pas 2
 
 # Dernier numéro national de chaque génération (1 à 9)
 GENERATION_ENDS = (151, 251, 386, 493, 649, 721, 809, 905, 1025)
@@ -36,7 +37,8 @@ def _load() -> dict:
             children.setdefault(s["evolvesFrom"], []).append(s["id"])
     mega_owner = {m: s["id"] for s in species.values() for m in s["megas"]}
     return {"species": species, "children": children, "mega_owner": mega_owner,
-            "starters": data["starters"], "by_name": {s["name"]: s["id"] for s in species.values()}}
+            "starters": data["starters"], "by_name": {s["name"]: s["id"] for s in species.values()},
+            "megas": {int(k): v for k, v in data.get("megas", {}).items()}}
 
 
 REF = _load()
@@ -51,15 +53,19 @@ def entry(sid: int) -> dict:
     return {
         "id": sid, "name": s["name"], "types": s["types"], "statTotal": s["statTotal"],
         "stage": s["stage"], "sprite": SPRITE_URL.format(id=sid), "isMega": False,
+        "tier": tier_index(s["statTotal"]),
         "firstStage": {"id": first, "name": REF["species"][first]["name"]},
     }
 
 
 def mega_entry(mega_id: int) -> dict:
     owner = REF["species"][REF["mega_owner"][mega_id]]
-    return {"id": mega_id, "name": f"{owner['name']}-mega", "types": owner["types"],
-            "statTotal": None, "stage": owner["stage"], "sprite": SPRITE_URL.format(id=mega_id),
-            "isMega": True, "baseSpecies": owner["name"]}
+    info = REF["megas"].get(mega_id, {})
+    total = info.get("statTotal")
+    return {"id": mega_id, "name": info.get("name", f"{owner['name']}-mega"),
+            "types": info.get("types", owner["types"]), "statTotal": total,
+            "tier": tier_index(total) if total else None, "stage": owner["stage"],
+            "sprite": SPRITE_URL.format(id=mega_id), "isMega": True, "baseSpecies": owner["name"]}
 
 
 def first_stage(sid: int) -> int:
@@ -83,8 +89,9 @@ def tiers(unlocked: list[int] | None = None) -> list[dict]:
         c = counts.setdefault(tier_index(s["statTotal"]), [0, 0])
         c[0] += 1
         c[1] += s["chain"] in owned_chains
+    # Palier terminé (plus rien à capturer) : il sert de terrain d'entraînement
     return [{"index": i, "min": i * TIER_SIZE, "max": i * TIER_SIZE + TIER_SIZE - 1,
-             "count": c[0], "owned": c[1]} for i, c in sorted(counts.items())]
+             "count": c[0], "owned": c[1], "training": c[0] == c[1]} for i, c in sorted(counts.items())]
 
 
 def _species_ids(unlocked: list) -> set[int]:
@@ -105,11 +112,34 @@ def encounter_pool(tier: int, unlocked: list, exclude: list | None = None) -> li
             if tier_index(s["statTotal"]) == tier and s["chain"] not in owned and sid not in skip]
 
 
+def tier_species(tier: int) -> list[int]:
+    return [sid for sid, s in REF["species"].items() if tier_index(s["statTotal"]) == tier]
+
+
+def is_training(tier: int, unlocked: list) -> bool:
+    """Plus aucune ligne à capturer dans ce palier : la run devient un entraînement."""
+    return not encounter_pool(tier, unlocked)
+
+
 def draw_encounters(tier: int, unlocked: list, exclude: list | None = None,
-                    count: int = ENCOUNTERS_PER_ROUND, rng: random.Random | None = None) -> list[dict]:
-    pool = encounter_pool(tier, unlocked, exclude)
+                    count: int = ENCOUNTERS_PER_ROUND, rng: random.Random | None = None) -> dict:
+    """3 adversaires du palier. En capture : parmi les lignes non possédées.
+    En entraînement : parmi toutes les espèces du palier (déjà battus évités si possible)."""
+    training = is_training(tier, unlocked)
+    if training:
+        skip = {int(x) for x in (exclude or [])}
+        pool = [sid for sid in tier_species(tier) if sid not in skip] or tier_species(tier)
+    else:
+        pool = encounter_pool(tier, unlocked, exclude)
     picks = (rng or random).sample(pool, min(count, len(pool)))
-    return [entry(sid) for sid in sorted(picks, key=lambda i: REF["species"][i]["statTotal"])]
+    return {"training": training,
+            "candidates": [entry(sid) for sid in sorted(picks, key=lambda i: REF["species"][i]["statTotal"])]}
+
+
+def too_strong(members: list[dict], tier: int) -> list[str]:
+    """Pokémon trop forts pour le palier : interdits 2 paliers (ou plus) sous le leur,
+    pour que les combats restent disputés."""
+    return [m["name"] for m in members if tier_index(m["statTotal"]) - tier > MAX_TIERS_BELOW]
 
 
 def wild_summary(profile: dict, team_size: int) -> dict:
