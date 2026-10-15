@@ -145,3 +145,40 @@ def test_mega_avec_ses_propres_stats_et_types():
     m = c.mega_entry(10034)
     assert m["name"] == "charizard-mega-x" and m["statTotal"] == 634 and m["types"] == ["fire", "dragon"]
     assert m["tier"] == 12
+
+
+# --- Formes alternatives ---------------------------------------------------------------
+
+def _form(name):
+    return next(fid for fid, f in c.REF["forms"].items() if f["name"] == name)
+
+
+def test_formes_equivalentes_et_ameliorees():
+    assert c.REF["forms"][_form("urshifu-rapid-strike")]["kind"] == "equivalent"
+    assert c.REF["forms"][_form("giratina-origin")]["kind"] == "equivalent"
+    for name in ("palafin-hero", "rotom-wash", "zygarde-complete", "kyurem-black"):
+        assert c.REF["forms"][_form(name)]["kind"] == "improved", name
+
+
+def test_forme_equivalente_suit_son_espece():
+    shifours = c.REF["by_name"]["urshifu"]
+    rapide = {"id": _form("urshifu-rapid-strike"), "baseSpecies": "urshifu", "isMega": False}
+    assert c.is_allowed(rapide, [shifours])
+    assert any(e["name"] == "urshifu-rapid-strike" for e in c.collection([shifours]))
+
+
+def test_superdofin_heros_apres_30_victoires():
+    superdofin, heros = c.REF["by_name"]["palafin"], _form("palafin-hero")
+    owned = [c.REF["by_name"]["finizen"], superdofin]
+    profil = {"id": heros, "baseSpecies": "palafin", "isMega": False}
+    assert not c.is_allowed(profil, owned)                       # plus de forme gratuite
+    p = c.progression(owned, {"palafin": 29})
+    assert p["unlock"] == [] and p["progress"]["palafin"]["threshold"] == 30
+    assert c.progression(owned, {"palafin": 30})["unlock"] == [heros]
+    assert c.is_allowed(profil, owned + [heros])
+    assert any(e["id"] == heros for e in c.collection(owned + [heros]))
+
+
+def test_formes_legendaires_et_fusions_hors_victoires():
+    assert not c.earned_by_victories(_form("zygarde-complete"))     # donjon
+    assert not c.earned_by_victories(_form("kyurem-black"))         # fusion : donjon

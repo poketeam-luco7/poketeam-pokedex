@@ -7,6 +7,7 @@ la progression du dresseur lui est fournie à chaque appel.
 """
 from __future__ import annotations
 
+from . import capture
 from .capture import REF, SPRITE_URL, _species_ids, first_stage
 
 DUNGEON_UNLOCK = 25        # Pokémon capturés pour ouvrir le mode Donjons
@@ -39,11 +40,26 @@ def _mega_dungeon(mid: int) -> dict:
             "needs": {"id": owner, "name": REF["species"][owner]["name"]}}
 
 
+def _form_dungeon(fid: int) -> dict:
+    """Forme améliorée d'un légendaire (Zygarde Parfait...) ou fusion (Kyurem Noir...)."""
+    f = REF["forms"][fid]
+    needs = [f["species"]] + f["partners"]
+    return {"id": fid, "name": f["name"], "kind": "form", "statTotal": f["statTotal"],
+            "types": f["types"], "sprite": SPRITE_URL.format(id=fid),
+            "requirement": requirement(f["statTotal"]),
+            "reward": {"id": fid, "name": f["name"]},
+            "needs": {"id": f["species"], "name": REF["species"][f["species"]]["name"]},
+            "needsAll": [{"id": n, "name": REF["species"][n]["name"]} for n in needs]}
+
+
 def catalog() -> list[dict]:
-    """Tous les donjons : un par légendaire ou fabuleux, un par Méga."""
+    """Tous les donjons : un par légendaire ou fabuleux, un par Méga,
+    un par forme améliorée de légendaire ou par fusion."""
     species = [_species_dungeon(sid) for sid, s in REF["species"].items() if s.get("special")]
     megas = [_mega_dungeon(mid) for mid in REF["megas"]]
-    return sorted(species + megas, key=lambda d: (d["statTotal"], d["id"]))
+    forms = [_form_dungeon(fid) for fid in REF["forms"]
+             if capture.is_improved(fid) and not capture.earned_by_victories(fid)]
+    return sorted(species + megas + forms, key=lambda d: (d["statTotal"], d["id"]))
 
 
 def _owned(unlocked: list) -> set[int]:
@@ -60,8 +76,10 @@ def state(unlocked: list) -> dict:
     for d in catalog():
         if d["kind"] == "mega" and d["needs"]["id"] not in owned:
             continue
+        if d["kind"] == "form" and not all(n["id"] in owned for n in d["needsAll"]):
+            continue
         reward = d["reward"]["id"]
-        conquered = (reward in owned if d["kind"] == "mega"
+        conquered = (reward in owned if d["kind"] in ("mega", "form")
                      else REF["species"][reward]["chain"] in owned_chains)
         dungeons.append({**d, "conquered": conquered})
     return {"open": captured >= DUNGEON_UNLOCK, "captured": captured, "required": DUNGEON_UNLOCK,

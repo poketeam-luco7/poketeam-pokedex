@@ -19,6 +19,7 @@ SECOND_EVOLUTION = 30          # victoires pour passer du 2e au 3e stade
 EXTRA_BRANCH = 10              # victoires supplémentaires pour choisir une autre branche (Évoli...)
 ENCOUNTERS_PER_ROUND = 3
 ROUNDS_PER_RUN = 3
+FORM_THRESHOLD = 30            # victoires avec l'espèce pour débloquer ses formes améliorées
 MAX_TIERS_BELOW = 1            # un Pokémon peut combattre 1 palier sous le sien, pas 2
 
 # Dernier numéro national de chaque génération (1 à 9)
@@ -39,7 +40,8 @@ def _load() -> dict:
     return {"species": species, "children": children, "mega_owner": mega_owner,
             "starters": data["starters"], "by_name": {s["name"]: s["id"] for s in species.values()},
             "megas": {int(k): v for k, v in data.get("megas", {}).items()},
-            "special_chains": special_chains, "ultimate": data.get("ultimate")}
+            "special_chains": special_chains, "ultimate": data.get("ultimate"),
+            "forms": {f["id"]: f for f in data.get("forms", [])}}
 
 
 REF = _load()
@@ -67,6 +69,30 @@ def mega_entry(mega_id: int) -> dict:
             "types": info.get("types", owner["types"]), "statTotal": total,
             "tier": tier_index(total) if total else None, "stage": owner["stage"],
             "sprite": SPRITE_URL.format(id=mega_id), "isMega": True, "baseSpecies": owner["name"]}
+
+
+def form_entry(fid: int) -> dict:
+    f = REF["forms"][fid]
+    s = REF["species"][f["species"]]
+    return {"id": fid, "name": f["name"], "types": f["types"], "statTotal": f["statTotal"],
+            "tier": tier_index(f["statTotal"]), "stage": s["stage"], "sprite": SPRITE_URL.format(id=fid),
+            "isMega": False, "isForm": True, "kind": f["kind"], "baseSpecies": s["name"]}
+
+
+def is_improved(fid) -> bool:
+    f = REF["forms"].get(int(fid)) if str(fid).isdigit() else None
+    return bool(f and f["kind"] == "improved")
+
+
+def earned_by_victories(fid: int) -> bool:
+    """Forme améliorée d'un Pokémon non légendaire, sans fusion : gagnée aux victoires.
+    Les autres (légendaires, fusions) ont leur donjon."""
+    f = REF["forms"][fid]
+    return f["kind"] == "improved" and not REF["species"][f["species"]].get("special") and not f["partners"]
+
+
+def unlocked_forms(unlocked: list) -> list[int]:
+    return sorted(int(u) for u in unlocked if is_improved(u))
 
 
 def first_stage(sid: int) -> int:
@@ -182,6 +208,7 @@ def progression(unlocked: list, victories: dict[str, int]) -> dict:
     choix à faire (plusieurs branches) et barres de progression.
     Les Méga ne se gagnent plus aux victoires : elles ont leur donjon."""
     owned = _species_ids(unlocked)
+    owned_forms = set(unlocked_forms(unlocked))
     unlock, choices, progress = [], [], {}
 
     for sid in sorted(owned):
@@ -198,14 +225,31 @@ def progression(unlocked: list, victories: dict[str, int]) -> dict:
                 else:
                     choices.append({"from": sid, "fromName": s["name"],
                                     "options": [entry(k) for k in missing]})
+
+        # Formes améliorées (Superdofin Héros, Motisma...) : 30 victoires avec l'espèce
+        forms = [fid for fid, f in REF["forms"].items()
+                 if f["species"] == sid and earned_by_victories(fid) and fid not in owned_forms]
+        if forms:
+            if not missing:
+                progress[s["name"]] = {"victories": v, "threshold": FORM_THRESHOLD, "kind": "form",
+                                       "next": [REF["forms"][f]["name"] for f in forms]}
+            if v >= FORM_THRESHOLD:
+                unlock.extend(forms)
     return {"unlock": unlock, "choices": choices, "progress": progress}
 
 
 def collection(unlocked: list) -> list[dict]:
-    """Fiches des Pokémon débloqués (espèces puis Méga)."""
+    """Fiches des Pokémon débloqués : chaque espèce suivie de ses formes utilisables
+    (équivalentes d'office, améliorées si débloquées), puis les Méga."""
     owned = sorted(_species_ids(unlocked), key=lambda i: (REF["species"][i]["chain"], i))
+    owned_forms = set(unlocked_forms(unlocked))
+    result = []
+    for sid in owned:
+        result.append(entry(sid))
+        result.extend(form_entry(fid) for fid, f in sorted(REF["forms"].items())
+                      if f["species"] == sid and (f["kind"] == "equivalent" or fid in owned_forms))
     megas = sorted(int(u) for u in unlocked if str(u).isdigit() and int(u) in REF["mega_owner"])
-    return [entry(sid) for sid in owned] + [mega_entry(m) for m in megas]
+    return result + [mega_entry(m) for m in megas]
 
 
 def unlocked_species_names(unlocked: list) -> list[str]:
@@ -213,9 +257,9 @@ def unlocked_species_names(unlocked: list) -> list[str]:
 
 
 def is_allowed(profile: dict, unlocked: list) -> bool:
-    """Un Pokémon est utilisable s'il est débloqué. Les formes alternatives suivent
-    leur espèce ; une Méga doit avoir été débloquée elle-même."""
-    if profile.get("isMega"):
+    """Un Pokémon est utilisable s'il est débloqué. Les formes équivalentes suivent leur
+    espèce ; une Méga ou une forme améliorée doit avoir été débloquée elle-même."""
+    if profile.get("isMega") or is_improved(profile["id"]):
         return str(profile["id"]) in {str(u) for u in unlocked}
     return profile["baseSpecies"] in set(unlocked_species_names(unlocked))
 

@@ -43,7 +43,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest -v          # 49 tests, PokéAPI simulée
+python -m pytest -v          # 55 tests, PokéAPI simulée
 ```
 
 Le référentiel du mode Capture se régénère avec `python scripts/build_capture_data.py`.

@@ -176,6 +176,9 @@ def capture_state(req: CaptureState):
         "collection": capture.collection(req.unlocked),
         "unlockedSpecies": capture.unlocked_species_names(req.unlocked),
         "unlockedMegas": capture.unlocked_megas(req.unlocked),
+        # Formes à mériter : verrouillées dans la création d'équipe tant qu'elles ne sont pas débloquées
+        "improvedForms": sorted(fid for fid in capture.REF["forms"] if capture.is_improved(fid)),
+        "unlockedForms": capture.unlocked_forms(req.unlocked),
         "pokedex": capture.dex_progress(req.unlocked),
         "progression": capture.progression(req.unlocked, req.victories),
         "tiers": capture.tiers(req.unlocked),

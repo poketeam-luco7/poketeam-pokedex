@@ -15,6 +15,16 @@ import urllib.request
 from pathlib import Path
 
 ULTIMATE = "eternatus-eternamax"
+
+# Variétés ignorées (mêmes règles que la façade PokéAPI) ; les Méga sont traitées à part
+EXCLUDED_FORMS = ("-gmax", "-totem", "-starter", "pikachu-", "-power-construct", "-battle-bond",
+                  "-own-tempo", "koraidon-", "miraidon-", "-mega", ULTIMATE)
+IMPROVED_GAP = 20          # au-delà de +20 de stats, une forme est « améliorée » et se mérite
+FUSIONS = {                # forme fusionnée -> espèces partenaires à posséder
+    "kyurem-black": ["zekrom"], "kyurem-white": ["reshiram"],
+    "necrozma-dusk": ["solgaleo"], "necrozma-dawn": ["lunala"], "necrozma-ultra": ["solgaleo", "lunala"],
+    "calyrex-ice": ["glastrier"], "calyrex-shadow": ["spectrier"],
+}
 BASE_URL = "https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv/"
 FILES = ["pokemon_species", "pokemon", "pokemon_stats", "pokemon_types", "types"]
 OUT = Path(__file__).resolve().parent.parent / "app" / "data" / "capture.json"
@@ -82,10 +92,23 @@ def build(t: dict[str, list[dict]]) -> dict:
                         else "legendary" if r["is_legendary"] == "1" else None),
         })
     by_name = {s["name"]: s["id"] for s in species}
+    # Formes alternatives : équivalentes (suivent l'espèce) ou améliorées (à mériter)
+    default_of = {int(r["species_id"]): int(r["id"]) for r in t["pokemon"] if r["is_default"] == "1"}
+    forms = []
+    for r in t["pokemon"]:
+        if r["is_default"] == "1" or any(e in r["identifier"] for e in EXCLUDED_FORMS):
+            continue
+        fid, sid = int(r["id"]), int(r["species_id"])
+        gain = totals[fid] - totals[default_of[sid]]
+        forms.append({"id": fid, "name": r["identifier"], "species": sid, "statTotal": totals[fid],
+                      "types": [name for _, name in sorted(types[fid])],
+                      "kind": "improved" if gain > IMPROVED_GAP else "equivalent",
+                      "partners": [by_name[n] for n in FUSIONS.get(r["identifier"], [])]})
+
     # Boss final : Éthernatos Infinimax (forme qui n'existe qu'en combat)
     ultimate = next(r for r in t["pokemon"] if r["identifier"] == ULTIMATE)
     uid = int(ultimate["id"])
-    return {"species": species, "starters": [by_name[n] for n in STARTERS], "megas": mega_info,
+    return {"species": species, "starters": [by_name[n] for n in STARTERS], "megas": mega_info, "forms": forms,
             "ultimate": {"id": uid, "name": ULTIMATE, "statTotal": totals[uid],
                          "types": [name for _, name in sorted(types[uid])]}}
 

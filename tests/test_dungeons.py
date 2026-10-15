@@ -60,3 +60,13 @@ def test_boss_summary_stats_x4_et_types_x3():
            "weaknesses": ["ice"], "resistances": ["ground"]}
     s = d.boss_summary(ray)
     assert s["statTotal"] == 3120 and s["weak"] == {"ice": 3} and s["resist"] == {"ground": 3}
+
+
+def test_donjon_de_fusion_visible_avec_les_deux_pokemon():
+    kyurem, zekrom = ID["kyurem"], ID["zekrom"]
+    noir = next(fid for fid, f in c.REF["forms"].items() if f["name"] == "kyurem-black")
+    seul = {x["id"] for x in d.state(premiers(25) + [kyurem])["dungeons"]}
+    duo = {x["id"]: x for x in d.state(premiers(25) + [kyurem, zekrom])["dungeons"]}
+    assert noir not in seul and noir in duo
+    assert duo[noir]["kind"] == "form" and duo[noir]["requirement"] == 700 * 3
+    assert duo[noir]["reward"]["id"] == noir
