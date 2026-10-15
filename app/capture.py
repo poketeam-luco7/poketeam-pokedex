@@ -17,7 +17,6 @@ TIER_SIZE = 50                 # paliers de 50 points de stats de base
 FIRST_EVOLUTION = 10           # victoires pour passer du 1er au 2e stade
 SECOND_EVOLUTION = 30          # victoires pour passer du 2e au 3e stade
 EXTRA_BRANCH = 10              # victoires supplémentaires pour choisir une autre branche (Évoli...)
-MEGA_THRESHOLD = 50            # victoires avec la forme finale pour débloquer ses Méga
 ENCOUNTERS_PER_ROUND = 3
 ROUNDS_PER_RUN = 3
 MAX_TIERS_BELOW = 1            # un Pokémon peut combattre 1 palier sous le sien, pas 2
@@ -36,9 +35,11 @@ def _load() -> dict:
         if s["evolvesFrom"]:
             children.setdefault(s["evolvesFrom"], []).append(s["id"])
     mega_owner = {m: s["id"] for s in species.values() for m in s["megas"]}
+    special_chains = {s["chain"] for s in species.values() if s.get("special")}
     return {"species": species, "children": children, "mega_owner": mega_owner,
             "starters": data["starters"], "by_name": {s["name"]: s["id"] for s in species.values()},
-            "megas": {int(k): v for k, v in data.get("megas", {}).items()}}
+            "megas": {int(k): v for k, v in data.get("megas", {}).items()},
+            "special_chains": special_chains, "ultimate": data.get("ultimate")}
 
 
 REF = _load()
@@ -77,6 +78,11 @@ def starters() -> list[dict]:
     return [entry(sid) for sid in REF["starters"]]
 
 
+def in_capture(sid: int) -> bool:
+    """Les lignes légendaires et fabuleuses ne se capturent pas : elles se gagnent en donjon."""
+    return REF["species"][sid]["chain"] not in REF["special_chains"]
+
+
 def tier_index(stat_total: int) -> int:
     return stat_total // TIER_SIZE
 
@@ -86,6 +92,8 @@ def tiers(unlocked: list[int] | None = None) -> list[dict]:
     owned_chains = _owned_chains(unlocked or [])
     counts: dict[int, list[int]] = {}
     for s in REF["species"].values():
+        if not in_capture(s["id"]):
+            continue
         c = counts.setdefault(tier_index(s["statTotal"]), [0, 0])
         c[0] += 1
         c[1] += s["chain"] in owned_chains
@@ -109,11 +117,13 @@ def encounter_pool(tier: int, unlocked: list, exclude: list | None = None) -> li
     owned = _owned_chains(unlocked)
     skip = {int(x) for x in (exclude or [])}
     return [sid for sid, s in REF["species"].items()
-            if tier_index(s["statTotal"]) == tier and s["chain"] not in owned and sid not in skip]
+            if tier_index(s["statTotal"]) == tier and s["chain"] not in owned and sid not in skip
+            and in_capture(sid)]
 
 
 def tier_species(tier: int) -> list[int]:
-    return [sid for sid, s in REF["species"].items() if tier_index(s["statTotal"]) == tier]
+    return [sid for sid, s in REF["species"].items()
+            if tier_index(s["statTotal"]) == tier and in_capture(sid)]
 
 
 def is_training(tier: int, unlocked: list) -> bool:
@@ -134,6 +144,11 @@ def draw_encounters(tier: int, unlocked: list, exclude: list | None = None,
     picks = (rng or random).sample(pool, min(count, len(pool)))
     return {"training": training,
             "candidates": [entry(sid) for sid in sorted(picks, key=lambda i: REF["species"][i]["statTotal"])]}
+
+
+def too_strong_for_run(members: list[dict], tier: int, unlocked: list) -> list[str]:
+    """La limite d'écart ne vaut qu'en entraînement : pour capturer, on entre où l'on veut."""
+    return too_strong(members, tier) if is_training(tier, unlocked) else []
 
 
 def too_strong(members: list[dict], tier: int) -> list[str]:
@@ -164,9 +179,9 @@ def evolution_threshold(sid: int, branches_owned: int) -> int:
 
 def progression(unlocked: list, victories: dict[str, int]) -> dict:
     """Ce que la progression permet : évolutions automatiques (une seule branche),
-    choix à faire (plusieurs branches), Méga à débloquer, et barres de progression."""
+    choix à faire (plusieurs branches) et barres de progression.
+    Les Méga ne se gagnent plus aux victoires : elles ont leur donjon."""
     owned = _species_ids(unlocked)
-    owned_megas = {int(u) for u in unlocked if str(u).isdigit() and int(u) in REF["mega_owner"]}
     unlock, choices, progress = [], [], {}
 
     for sid in sorted(owned):
@@ -183,10 +198,6 @@ def progression(unlocked: list, victories: dict[str, int]) -> dict:
                 else:
                     choices.append({"from": sid, "fromName": s["name"],
                                     "options": [entry(k) for k in missing]})
-        elif not kids and s["megas"] and not set(s["megas"]) <= owned_megas:
-            progress[s["name"]] = {"victories": v, "threshold": MEGA_THRESHOLD, "next": ["mega"]}
-            if v >= MEGA_THRESHOLD:
-                unlock.extend(m for m in s["megas"] if m not in owned_megas)
     return {"unlock": unlock, "choices": choices, "progress": progress}
 
 

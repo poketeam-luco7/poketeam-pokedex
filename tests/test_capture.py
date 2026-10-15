@@ -22,7 +22,7 @@ def test_starters_des_9_generations():
 def test_paliers_de_50():
     paliers = c.tiers([ID["charmander"]])
     assert all(p["max"] - p["min"] == 49 for p in paliers)
-    assert sum(p["count"] for p in paliers) == len(c.REF["species"])
+    assert sum(p["count"] for p in paliers) == sum(c.in_capture(sid) for sid in c.REF["species"])
     p300 = next(p for p in paliers if p["min"] == 300)
     assert p300["owned"] >= 1                                   # Salamèche (309)
 
@@ -66,11 +66,19 @@ def test_evoli_choix_puis_10_victoires_par_branche():
     assert len(c.progression(owned, {"eevee": 20})["choices"][0]["options"]) == 7
 
 
-def test_mega_apres_50_victoires_avec_la_forme_finale():
+def test_mega_ne_se_gagne_plus_aux_victoires():
     owned = [ID["charmander"], ID["charmeleon"], ID["charizard"]]
-    assert c.progression(owned, {"charizard": 49})["unlock"] == []
-    megas = c.progression(owned, {"charizard": 50})["unlock"]
-    assert set(megas) == set(c.REF["species"][ID["charizard"]]["megas"])
+    p = c.progression(owned, {"charizard": 500})
+    assert p["unlock"] == [] and "charizard" not in p["progress"]   # elle a son donjon
+
+
+def test_legendaires_hors_du_mode_capture():
+    mewtwo, cosmog = c.REF["by_name"]["mewtwo"], c.REF["by_name"]["cosmog"]
+    assert not c.in_capture(mewtwo) and not c.in_capture(cosmog)
+    for tier in range(15):
+        pool = c.encounter_pool(tier, [])
+        assert mewtwo not in pool and cosmog not in pool
+    assert all(c.in_capture(sid) for t in range(15) for sid in c.tier_species(t))
 
 
 def test_sauvage_adapte_a_la_taille_equipe():
@@ -110,7 +118,7 @@ def test_palier_termine_devient_entrainement():
 
 
 def test_entrainement_dans_un_petit_palier():
-    tier = max(c.tier_index(s["statTotal"]) for s in c.REF["species"].values())
+    tier = max(c.tier_index(s["statTotal"]) for sid, s in c.REF["species"].items() if c.in_capture(sid))
     tout = c.tier_species(tier)
     possedes = [c.first_stage(sid) for sid in tout]
     # tous déjà battus : on autorise les revanches plutôt que de bloquer la run
@@ -123,6 +131,14 @@ def test_trop_fort_deux_paliers_en_dessous():
     assert c.too_strong([dracaufeu], 9) == []             # 1 palier en dessous : autorisé
     assert c.too_strong([dracaufeu], 8) == ["charizard"]  # 2 paliers en dessous : interdit
     assert c.too_strong([dracaufeu], 12) == []            # plus fort que lui : autorisé
+
+
+def test_ecart_de_palier_seulement_en_entrainement():
+    dracaufeu = {"name": "charizard", "statTotal": 534}
+    tier = 3
+    assert c.too_strong_for_run([dracaufeu], tier, [ID["charmander"]]) == []        # capture : libre
+    tout = [c.first_stage(sid) for sid in c.tier_species(tier)]
+    assert c.too_strong_for_run([dracaufeu], tier, tout) == ["charizard"]           # entraînement
 
 
 def test_mega_avec_ses_propres_stats_et_types():

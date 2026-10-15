@@ -10,10 +10,9 @@ import os
 
 import httpx
 
-from datetime import date, datetime, time, timedelta, timezone
 
-from .logic import (ALL_TYPES, BOSS_STAT_MULTIPLIER, analyze_team, boss_of_week, boss_summary,
-                    weaknesses_and_resistances)
+from . import dungeons
+from .logic import ALL_TYPES, analyze_team, weaknesses_and_resistances
 
 POKEAPI_URL = os.getenv("POKEAPI_URL", "https://pokeapi.co/api/v2")
 SPRITE_URL = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/{id}.png"
@@ -285,19 +284,18 @@ async def analyze(pokemon_ids: list) -> dict:
     return analyze_team(list(profiles), relations)
 
 
-async def current_boss(today: date | None = None) -> dict:
-    """Boss de la semaine : profil, stats multipliées, et date du prochain changement."""
-    today = today or datetime.now(timezone.utc).date()
-    pick = boss_of_week(today)
-    profile = await get_profile(pick["name"])
-    next_monday = today + timedelta(days=7 - today.weekday())
+async def current_boss() -> dict:
+    """Boss final, Éthernatos Infinimax : profil, stats × 4 et stats d'équipe exigées."""
+    u = dungeons.ultimate()
+    profile = await get_profile(u["name"])
+    m = dungeons.STAT_MULTIPLIER
     return {
         **profile,
-        "artwork": ARTWORK_URL.format(id=profile["id"]),
-        "week": pick["week"],
-        "endsAt": datetime.combine(next_monday, time(0, 0), timezone.utc).isoformat(),
-        "stats": {k: v * BOSS_STAT_MULTIPLIER for k, v in profile["stats"].items()},
-        "statTotal": profile["statTotal"] * BOSS_STAT_MULTIPLIER,
+        "artwork": u["artwork"],
+        "multiplier": m,
+        "stats": {k: v * m for k, v in profile["stats"].items()},
+        "statTotal": profile["statTotal"] * m,
         "baseStatTotal": profile["statTotal"],
-        "summary": boss_summary(profile),
+        "requirement": dungeons.requirement(profile["statTotal"]),
+        "summary": dungeons.boss_summary(profile),
     }

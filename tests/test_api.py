@@ -181,22 +181,44 @@ def test_route_analyze():
     assert client.post("/teams/analyze", json={"pokemonIds": []}).status_code == 422
 
 
-def test_boss_de_la_semaine_et_combat(monkeypatch):
-    from app import logic
-    monkeypatch.setattr(logic, "BOSS_CATALOG", ["charizard"])
+def test_boss_final_et_seuil_d_entree():
+    FAKE["/pokemon/eternatus-eternamax"] = {
+        "id": 10190, "name": "eternatus-eternamax", "species": {"name": "eternatus"},
+        "sprites": {"front_default": "eternamax.png"},
+        "types": [{"slot": 1, "type": {"name": "poison"}}, {"slot": 2, "type": {"name": "dragon"}}],
+        "stats": [{"base_stat": v, "stat": {"name": n}} for n, v in [
+            ("hp", 255), ("attack", 115), ("defense", 250),
+            ("special-attack", 125), ("special-defense", 250), ("speed", 130)]],
+    }
     b = client.get("/boss").json()
-    assert b["name"] == "charizard"
-    assert b["statTotal"] == 534 * 5 and b["baseStatTotal"] == 534
-    assert b["artwork"].endswith("/official-artwork/6.png")
-    assert "summary" in b and b["endsAt"].endswith("+00:00")
+    assert b["name"] == "eternatus-eternamax" and b["baseStatTotal"] == 1125
+    assert b["statTotal"] == 4500 and b["requirement"] == 3375
+    assert b["artwork"].endswith("/official-artwork/10190.png")
 
-    team = {"name": "Eau", "statTotal": 3000, "offensiveTypes": ["water"],
-            "weak": {"electric": 6}, "resist": {"fire": 6, "water": 6}}
-    r = client.post("/boss/fight", json={"team": team}).json()
-    assert r["boss"]["name"] == "charizard" and "summary" not in r["boss"]
-    assert r["teamB"]["statTotal"] == 2670
-    assert r["teamB"]["defensiveDetail"] == {"water": -3}   # le boss compte pour 3
-    assert r["winner"] == "A"
+    faible = {"name": "Eau", "statTotal": 3000, "offensiveTypes": ["water"], "weak": {}, "resist": {}}
+    r = client.post("/boss/fight", json={"team": faible})
+    assert r.status_code == 400 and "3375" in r.json()["detail"]
+    forte = {**faible, "statTotal": 4200}
+    r = client.post("/boss/fight", json={"team": forte}).json()
+    assert r["boss"]["name"] == "eternatus-eternamax" and "summary" not in r["boss"]
+    assert r["teamB"]["statTotal"] == 4500
+
+
+def test_donjons_ouverture_et_combat():
+    peu = client.post("/dungeons/state", json={"unlocked": [4]}).json()
+    assert not peu["open"] and peu["required"] == 25 and peu["ultimate"]["statTotal"] == 1125
+    assert all(d["kind"] != "mega" for d in peu["dungeons"])          # aucune espèce à Méga possédée
+    # 25 espèces dont Dracaufeu : le donjon de ses Méga apparaît
+    possedes = list(range(1, 26))
+    st = client.post("/dungeons/state", json={"unlocked": possedes}).json()
+    assert st["open"] and any(d["id"] == 10034 for d in st["dungeons"])
+    equipe = {"name": "Feu", "statTotal": 1000, "offensiveTypes": ["fire"], "weak": {}, "resist": {}}
+    r = client.post("/dungeons/fight", json={"team": equipe, "dungeonId": 10034, "unlocked": possedes})
+    assert r.status_code == 400 and "1902" in r.json()["detail"]      # 634 × 3
+    FAKE["/pokemon/10034"] = {**FAKE["/pokemon/charizard"], "id": 10034, "name": "charizard-mega-x"}
+    r = client.post("/dungeons/fight", json={"team": {**equipe, "statTotal": 2000},
+                                             "dungeonId": 10034, "unlocked": possedes}).json()
+    assert r["dungeon"]["reward"]["id"] == 10034 and r["teamB"]["statTotal"] == 534 * 4   # profil simulé (celui de Dracaufeu)
 
 
 def test_generation_avec_formes_a_cote_de_leur_espece():
@@ -247,7 +269,7 @@ def test_routes_capture():
     a = client.post("/capture/analyze", json={"pokemonIds": ["charizard"], "unlocked": [4]}).json()
     assert a["forbidden"] == ["charizard"] and a["tooStrong"] == []
     a = client.post("/capture/analyze", json={"pokemonIds": ["charizard"], "unlocked": [4, 5, 6], "tier": 8}).json()
-    assert a["tooStrong"] == ["charizard"]
+    assert a["tooStrong"] == []                       # palier 8 encore à capturer : pas de limite
     assert etat["pokedex"]["captured"] == 1 and etat["unlockedMegas"] == []
 
     locked = client.post("/capture/locked", json={"teams": {

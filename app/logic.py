@@ -162,32 +162,3 @@ def analyze_team(profiles: list[dict], relations: dict[str, dict]) -> dict:
         "suggestions": suggest_types(summary, relations),
     }
 
-
-# --- Boss de la semaine --------------------------------------------------------
-# Le boss est déduit de la date : aucun stockage, aucune tâche planifiée.
-# Deux appels la même semaine renvoient le même boss, le service reste sans état.
-
-BOSS_CATALOG = [
-    "rayquaza-mega", "mewtwo-mega-y", "tyranitar-mega", "garchomp-mega",
-    "metagross-mega", "gyarados-mega", "salamence-mega", "charizard-mega-x",
-]
-BOSS_STAT_MULTIPLIER = 5   # un boss a 5 fois les stats de base de son espèce
-BOSS_TYPE_WEIGHT = 3       # ses faiblesses/résistances comptent comme 3 Pokémon
-
-
-def boss_of_week(day) -> dict:
-    """Boss de la semaine ISO contenant `day` (un objet date)."""
-    year, week, _ = day.isocalendar()
-    name = BOSS_CATALOG[(year * 100 + week) % len(BOSS_CATALOG)]
-    return {"name": name, "week": f"{year}-W{week:02d}"}
-
-
-def boss_summary(profile: dict) -> dict:
-    """Le boss vu comme une « équipe » pour la formule d'affrontement."""
-    return {
-        "name": profile["name"],
-        "statTotal": profile["statTotal"] * BOSS_STAT_MULTIPLIER,
-        "weak": {t: BOSS_TYPE_WEIGHT for t in profile["weaknesses"]},
-        "resist": {t: BOSS_TYPE_WEIGHT for t in profile["resistances"]},
-        "offensiveTypes": list(profile["types"]),
-    }

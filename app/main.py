@@ -8,7 +8,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Path
 from pydantic import BaseModel, Field
 
-from . import capture
+from . import capture, dungeons
 from .logic import ALL_TYPES, compare_teams
 from .pokeapi import (NotFound, analyze, current_boss, get_profile, list_by_type, list_generation,
                       list_megas)
@@ -65,6 +65,12 @@ class LockedTeam(BaseModel):
 
 class LockedRequest(BaseModel):
     teams: Dict[str, LockedTeam]
+
+
+class DungeonFightRequest(BaseModel):
+    team: TeamSummary
+    dungeonId: int
+    unlocked: List[Union[int, str]] = Field(default_factory=list)
 
 
 class CompareRequest(BaseModel):
@@ -127,7 +133,7 @@ async def analyze_route(req: AnalyzeRequest):
 
 @app.get("/boss")
 async def boss():
-    """Boss de la semaine (public)."""
+    """Boss final, Éthernatos Infinimax (public)."""
     try:
         return await current_boss()
     except httpx.HTTPError:
@@ -136,7 +142,11 @@ async def boss():
 
 @app.post("/boss/fight")
 async def boss_fight(req: BossFightRequest):
-    """Affrontement d'une équipe contre le boss : même formule que le versus."""
+    """Affrontement d'une équipe contre le boss final : même formule que le versus,
+    réservé aux équipes dont le total des stats atteint 3 fois celui du boss."""
+    refus = dungeons.check_ultimate(req.team.statTotal)
+    if refus:
+        raise HTTPException(400, refus)
     try:
         b = await current_boss()
     except httpx.HTTPError:
@@ -188,7 +198,8 @@ async def capture_analyze(req: CaptureAnalyzeRequest):
     except httpx.HTTPError:
         raise HTTPException(503, "PokéAPI indisponible")
     result["forbidden"] = [m["name"] for m in result["members"] if not capture.is_allowed(m, req.unlocked)]
-    result["tooStrong"] = capture.too_strong(result["members"], req.tier) if req.tier is not None else []
+    result["tooStrong"] = (capture.too_strong_for_run(result["members"], req.tier, req.unlocked)
+                           if req.tier is not None else [])
     return result
 
 
@@ -221,3 +232,29 @@ async def capture_fight(req: CaptureFightRequest):
         raise HTTPException(503, "PokéAPI indisponible")
     result = compare_teams(req.team.model_dump(), capture.wild_summary(wild, req.teamSize))
     return {**result, "wild": {**capture.entry(req.wildId), "sprite": wild["sprite"]}}
+
+
+# --- Donjons ----------------------------------------------------------------------------
+# Légendaires, fabuleux et Méga : un donjon chacun. La progression est fournie par Équipes.
+
+@app.post("/dungeons/state")
+def dungeons_state(req: CaptureState):
+    """Mode ouvert ou non, donjons visibles (conquis ou non) et boss final."""
+    return dungeons.state(req.unlocked)
+
+
+@app.post("/dungeons/fight")
+async def dungeons_fight(req: DungeonFightRequest):
+    """Combat contre le Pokémon d'un donjon (stats × 4), si l'équipe peut y entrer."""
+    dungeon, refus = dungeons.check_entry(req.dungeonId, req.unlocked, req.team.statTotal)
+    if refus:
+        raise HTTPException(400, refus)
+    try:
+        profile = await get_profile(req.dungeonId)
+    except NotFound:
+        raise HTTPException(404, "Pokémon du donjon inconnu")
+    except httpx.HTTPError:
+        raise HTTPException(503, "PokéAPI indisponible")
+    result = compare_teams(req.team.model_dump(), dungeons.boss_summary(profile))
+    return {**result, "dungeon": {**dungeon, "sprite": profile["sprite"],
+                                  "artwork": dungeons.ARTWORK_URL.format(id=req.dungeonId)}}

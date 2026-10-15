@@ -1,8 +1,8 @@
 # PokéTeam — Pokédex
 
 Microservice **sans état** (FastAPI) : façade de PokéAPI (*Anti-Corruption Layer*) et **seule
-source des règles Pokémon** — faiblesses et résistances, formule d'affrontement, boss de la
-semaine, règles du mode Capture. Aucune base de données : un cache mémoire devant PokéAPI et un
+source des règles Pokémon** — faiblesses et résistances, formule d'affrontement,
+règles du mode Capture, donjons et boss final. Aucune base de données : un cache mémoire devant PokéAPI et un
 référentiel statique (`app/data/capture.json`).
 
 | | |
@@ -20,7 +20,8 @@ référentiel statique (`app/data/capture.json`).
 | GET | `/pokemon/{id}` | Profil : stats, types, faiblesses, résistances |
 | POST | `/teams/analyze` | Profils + summary + couverture + suggestions d'une équipe |
 | POST | `/teams/compare` | Affrontement de deux équipes |
-| GET · POST | `/boss`, `/boss/fight` | Boss de la semaine |
+| GET · POST | `/boss`, `/boss/fight` | Boss final : Éthernatos Infinimax |
+| POST | `/dungeons/state`, `/dungeons/fight` | Donjons : ouverture, visibilité, seuil d'entrée, combat |
 | GET · POST | `/capture/*` | Règles du mode Capture (starters, état, rencontres, combat, verrouillage) |
 
 Documentation interactive : `http://localhost:8000/docs` en local.
@@ -42,7 +43,7 @@ uvicorn app.main:app --reload --port 8000
 
 ```bash
 pip install -r requirements.txt pytest
-python -m pytest -v          # 43 tests, PokéAPI simulée
+python -m pytest -v          # 49 tests, PokéAPI simulée
 ```
 
 Le référentiel du mode Capture se régénère avec `python scripts/build_capture_data.py`.

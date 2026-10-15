@@ -14,6 +14,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
+ULTIMATE = "eternatus-eternamax"
 BASE_URL = "https://raw.githubusercontent.com/PokeAPI/pokeapi/master/data/v2/csv/"
 FILES = ["pokemon_species", "pokemon", "pokemon_stats", "pokemon_types", "types"]
 OUT = Path(__file__).resolve().parent.parent / "app" / "data" / "capture.json"
@@ -76,9 +77,17 @@ def build(t: dict[str, list[dict]]) -> dict:
             "statTotal": totals[sid],
             "types": [name for _, name in sorted(types[sid])],
             "megas": sorted(megas.get(sid, [])),
+            # légendaires et fabuleux : hors du mode Capture, gagnés dans les donjons
+            "special": ("mythical" if r["is_mythical"] == "1"
+                        else "legendary" if r["is_legendary"] == "1" else None),
         })
     by_name = {s["name"]: s["id"] for s in species}
-    return {"species": species, "starters": [by_name[n] for n in STARTERS], "megas": mega_info}
+    # Boss final : Éthernatos Infinimax (forme qui n'existe qu'en combat)
+    ultimate = next(r for r in t["pokemon"] if r["identifier"] == ULTIMATE)
+    uid = int(ultimate["id"])
+    return {"species": species, "starters": [by_name[n] for n in STARTERS], "megas": mega_info,
+            "ultimate": {"id": uid, "name": ULTIMATE, "statTotal": totals[uid],
+                         "types": [name for _, name in sorted(types[uid])]}}
 
 
 if __name__ == "__main__":
